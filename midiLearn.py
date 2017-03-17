@@ -45,7 +45,7 @@ elif x.dtype == 'int32':
 max_nb_bit = float(2 ** (nb_bits - 1))
 
 samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
-emptyArray = np.empty(int(samples.size / 512))
+emptyArray = np.empty(int(samples.size / sampleLength))
 noteDataArray= [{'index': i, 'data': samples[i * sampleLength: (i + 1) * sampleLength]} for i, x in
                            enumerate(emptyArray)]  # could be ordered dict but i dont care
 
@@ -57,7 +57,7 @@ for index, note in enumerate(noteTimeLine): # fill up the noteDataArray's elemen
             percent = newPercent
         beginIndex = int(np.ceil(tickToSampleIndex(note['beginTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
         endIndex = int(round(tickToSampleIndex(note['endTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
-        for arrayIndecies in range(beginIndex, endIndex):
+        for arrayIndecies in range(beginIndex, endIndex): # maybe its endIndex +1 ? close enough....
             noteDataArray[arrayIndecies]['notes'] = note['notes']
 
 trainData = filter(lambda x: 'notes' in x, noteDataArray)
