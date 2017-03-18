@@ -1,8 +1,12 @@
 from scipy.io.wavfile import read as wavread
 import numpy as np
 import midi
-
-
+#from librosa.core import cqt
+from keras.models import Sequential
+from keras.layers import Dense, Activation
+from keras.optimizers import SGD
+from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
+from keras.models import load_model # to load saved model.
 # t = sampleNum / samplerate = (tick /resoltuion) * (60/bpm), index = sampleNum / sampleLength
 # => index = tick * (1/resoltuion)* (60/bpm) * (sampleRate )* (sampleLength)
 # resoltion is ticks per beat
@@ -27,6 +31,25 @@ def createNoteTimeline(midiTrack):
             noteTimeline.append({'notes': currentNotes[:], 'beginTimeInTicks': currentTime, 'endTimeInTicks': endTime})
     return noteTimeline
 
+
+def train_model(transformed_data, pitches_onehot, lr):  # trains the model and returns the saved file's filename. (could also return the model, which is not necessarily identical to the saved one.)
+	model_name = 'model.hd5'
+	log_dir = 'TB_log'
+	callbacks = []
+	callbacks.append(TensorBoard(log_dir=log_dir)) # logs into the TB_log directory
+	callbacks.append(ModelCheckpoint(filepath=model_name,   verbose=1, save_best_only=True, period=1)) # saves the model if the result is improved at the current epoch
+	callbacks.append(EarlyStopping(patience = 3,verbose = 1))
+	model = Sequential()
+	#Maybe scaling the input? Or the activated layers?
+	model.add(Dense(input_dim=transformed_data.shape[1], activation='relu', output_dim =10))
+	model.add(Dense(activation='softmax', output_dim =pitches_onehot.shape[1]))
+	print("Model Summary: \n" + str(model.summary()))
+	sgd = SGD(lr=lr,  momentum=0.9, nesterov=True)
+	model.compile(optimizer=sgd, loss='categorical_crossentropy',  metrics=['accuracy'])
+	model.fit(transformed_data, pitches_onehot, nb_epoch=15, batch_size=32, shuffle=True,validation_split = 0.2, callbacks = callbacks)
+	return model_name
+
+np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 
 pattern = midi.read_midifile("MIDIproba.mid")
 noteTimeLine = createNoteTimeline(pattern[1])
@@ -61,4 +84,48 @@ for index, note in enumerate(noteTimeLine): # fill up the noteDataArray's elemen
             noteDataArray[arrayIndecies]['notes'] = note['notes']
 
 trainData = filter(lambda x: 'notes' in x, noteDataArray)
+note_samples = np.array([each['data'] for each in trainData])
+pitches = np.array([each['notes'][0]['pitch'] for each in trainData])
+pitch_range = [np.min(pitches),np.max(pitches)]
+frequency_range = [2.0**((d-69)/12.0)*440.0 for d in pitch_range] # for cqt...
+num_octave = (pitch_range[1]-pitch_range[0])/12.0 # for cqt...
+pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]] #one-hot encoded pitches rescaled from 0 to max(pitches)-min(pitches)
+
+#cqt_transform = np.array([cqt(sample,fmin = frequency_range[0], bins_per_octave = 36, n_bins = int(np.ceil(num_octave*36)), sr = sampleRate, hop_length = 2 * sampleLength ) for sample in note_samples]) # I have no idea why we need the hop_length to be 2* sampleLength...
+fourier_transform = np.abs(np.fft.rfft(note_samples))
+
+# Splitting the dataset to train (inc. validation) and test set.
+test_split = 0.15
+test_num = int(np.ceil(test_split * fourier_transform.shape[0]))
+test_indexes = np.random.randint(fourier_transform.shape[0],size = (test_num,))
+test_pitches_onehot = pitches_onehot[test_indexes]
+test_fourier_transform = fourier_transform[test_indexes]
+
+pitches_onehot = np.delete(pitches_onehot,test_indexes,0)
+fourier_transform = np.delete(fourier_transform,test_indexes,0)
+
+#Train  ( chu - chu )
+print("Training")
+trained_model_path = train_model(fourier_transform,pitches_onehot, 0.01)
+
+#Load saved model and test on the test data
+print("Reloadig the model from the hard drive and testing it using the test dataset.")
+model = load_model(trained_model_path)
+test_accuracy = model.evaluate(test_fourier_transform,test_pitches_onehot)[1] # returns the loss and accuracy in this order.
+print("\nTest accuracy: " + str(test_accuracy))
+
+#Calculating the accuracy after using predict() function, which should has the same result
+
+test_predictions = model.predict(test_fourier_transform)
+test_prediction_midinote = np.argmax(test_predictions,1) # not actual midi note, the lowest note in the training set is at the 0-th index. Add pitch_range[0] to get the actual midi note.
+test_real_midinote = np.argmax(test_pitches_onehot,1) # not actual midi note, but has the same scaling as test_prediction_midinote.
+test_matching_notes = np.sum(test_real_midinote == test_prediction_midinote)
+test_accuracy_by_hand = float(test_matching_notes) / test_num
+print("Test accuracy calculated using the  predicted notes " + str(test_accuracy_by_hand))
+
+if np.abs(test_accuracy - test_accuracy_by_hand) <0.01:
+	print("Test accuracy is indeed the same when using built-in evaluation or predicting the notes and evaluating ourselves. Math works then...")
+else: # should never ever happen
+	print("Test accuracy was not the same using built-in evaluation and predicting the accuracy ourselves. What could happen?") 
 print("end")
+print("See the training log by executing $ tensorboard --logdir='.'")
