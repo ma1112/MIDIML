@@ -1,0 +1,24 @@
+{
+  "name": "predict",
+  "version": "1.0.0",
+  "description": "predicts a note",
+  "main": "predict.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ViktorVaczi90/MIDIML.git"
+  },
+  "author": "Árpád Marinovszki",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ViktorVaczi90/MIDIML/issues"
+  },
+  "homepage": "https://github.com/ViktorVaczi90/MIDIML#readme",
+  "dependencies": {
+    "fft.js": "^4.0.3",
+    "math.js": "^1.1.1",
+    "mathjs": "^3.10.0"
+  }
+}
