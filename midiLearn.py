@@ -49,6 +49,31 @@ def train_model(transformed_data, pitches_onehot, lr):  # trains the model and r
 	model.fit(transformed_data, pitches_onehot, nb_epoch=15, batch_size=32, shuffle=True,validation_split = 0.2, callbacks = callbacks)
 	return model_name
 
+
+def generate_random_filter(length_filter = 257, minsupressed = 8, maxsupressed = 26):
+	# returns a random noisy high pass filter
+	filter = np.ones(length_filter)
+	sup_max = np.random.randint(minsupressed,maxsupressed+1)
+	supress_part = np.linspace(0.25,sup_max,sup_max) * (0.5 + 0.5 * np.random.rand(sup_max))
+	supress_part[np.random.randint(0,sup_max,3)] = 1
+
+	filter[0:len(supress_part)] = supress_part
+	filter = filter + np.abs( 0.8 + np.random.randn(len(filter)) /10)
+	return filter
+	
+	
+
+
+def generate_distorsed_ffts(fft_data,pitches_onehot):
+
+#	distorted_pitches_onehot = np.matlib.repmat(pitches_onehot,num_filters,1)
+	filters = np.array([generate_random_filter(fft_data.shape[1]) for i in range(fft_data.shape[0])])
+	distorted_data = fft_data * filters
+	return (distorted_data, pitches_onehot)
+	
+	
+
+
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 
 pattern = midi.read_midifile("MIDIproba.mid")
@@ -94,6 +119,11 @@ pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]]
 #cqt_transform = np.array([cqt(sample,fmin = frequency_range[0], bins_per_octave = 36, n_bins = int(np.ceil(num_octave*36)), sr = sampleRate, hop_length = 2 * sampleLength ) for sample in note_samples]) # I have no idea why we need the hop_length to be 2* sampleLength...
 fourier_transform = np.abs(np.fft.rfft(note_samples))
 
+
+# Crating a lot of training examples by distorting the input.
+print('Distorting training data') # for debug 
+(fourier_transform, pitches_onehot) = generate_distorsed_ffts(fourier_transform, pitches_onehot)
+
 # Splitting the dataset to train (inc. validation) and test set.
 test_split = 0.15
 test_num = int(np.ceil(test_split * fourier_transform.shape[0]))
@@ -106,7 +136,7 @@ fourier_transform = np.delete(fourier_transform,test_indexes,0)
 
 #Train  ( chu - chu )
 print("Training")
-trained_model_path = train_model(fourier_transform,pitches_onehot, 0.01)
+trained_model_path = train_model(fourier_transform,pitches_onehot, 0.005)
 
 #Load saved model and test on the test data
 print("Reloadig the model from the hard drive and testing it using the test dataset.")
