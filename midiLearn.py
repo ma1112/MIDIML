@@ -112,12 +112,19 @@ def processWav(x,sampleRate):
 		for arrayIndecies in range(beginIndex, endIndex): # maybe its endIndex +1 ? close enough....
 		    noteDataArray[arrayIndecies]['notes'] = note['notes']
 
-	trainData = filter(lambda x: 'notes' in x, noteDataArray)
+
+	# handling cases when no note is played:
+	hasNoteArray = filter(lambda x: 'notes' in x, noteDataArray)
+	original_pitches = np.array([each['notes'][0]['pitch'] for each in hasNoteArray])
+	min_original_pitch = np.min(original_pitches)
+	noSoundPitch = min_original_pitch - 1
+	for element in noteDataArray:
+		element.setdefault('notes',[{'pitch':noSoundPitch}])
+
+	trainData = noteDataArray
 	note_samples = np.array([each['data'] for each in trainData])
 	pitches = np.array([each['notes'][0]['pitch'] for each in trainData])
 	pitch_range = [np.min(pitches),np.max(pitches)]
-	frequency_range = [2.0**((d-69)/12.0)*440.0 for d in pitch_range] # for cqt...
-	num_octave = (pitch_range[1]-pitch_range[0])/12.0 # for cqt...
 	pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]] #one-hot encoded pitches rescaled from 0 to max(pitches)-min(pitches)
 	return (note_samples, pitches_onehot)
 
