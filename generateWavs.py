@@ -46,12 +46,17 @@ def running_mean(x, windowSize):
 
 # x = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
 # wavwrite('noisedfiltered1.wav',22050, x)
-asd = getNs()
-[sampleRate, original] = wavread("midiTeszt22.05k.wav")
-for key in asd:
-    x = running_mean(original, asd[key]).astype('int16')
-    x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
-    string = 'noisedfiltered' + str(key) + '.wav'
-    wavwrite(string, 22050, x)
-    print(string)
-print('asd')
+
+def getFilteredDataList(save = False):
+    asd = getNs()
+    result = []
+    [sampleRate, original] = wavread("midiTeszt22.05k.wav")
+    for key in asd:
+        x = running_mean(original, asd[key]).astype('int16')
+        x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
+        if save:
+            string = 'noisedfiltered' + str(key) + '.wav'
+            wavwrite(string, 22050, x)
+            print(string)
+        result.append(x)
+    return result

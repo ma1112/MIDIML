@@ -7,6 +7,8 @@ from keras.layers import Dense, Activation
 from keras.optimizers import SGD
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
+from generateWavs import getFilteredDataList
+
 # t = sampleNum / samplerate = (tick /resoltuion) * (60/bpm), index = sampleNum / sampleLength
 # => index = tick * (1/resoltuion)* (60/bpm) * (sampleRate )* (sampleLength)
 # resoltion is ticks per beat
@@ -74,55 +76,77 @@ def generate_distorsed_ffts(fft_data,pitches_onehot):
 	
 
 
+
+
+def readWav():
+	pattern = midi.read_midifile("MIDIproba.mid")
+	noteTimeLine = createNoteTimeline(pattern[1])
+
+	[sampleRate, x] = wavread("midiTeszt22.05k.wav")
+	# used variables
+	sampleLength = 512
+	resolution = pattern.resolution
+	bpm = 120  # this depends on sound rendering/recording bpm
+
+	# scale to -1.0 -- 1.0
+	if x.dtype == 'int16':
+	    nb_bits = 16  # -> 16-bit wav files
+	elif x.dtype == 'int32':
+	    nb_bits = 32  # -> 32-bit wav files
+	max_nb_bit = float(2 ** (nb_bits - 1))
+
+	samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
+	emptyArray = np.empty(int(samples.size / sampleLength))
+	noteDataArray= [{'index': i, 'data': samples[i * sampleLength: (i + 1) * sampleLength]} for i, x in
+		                   enumerate(emptyArray)]  # could be ordered dict but i dont care
+
+	percent = 0
+	for index, note in enumerate(noteTimeLine): # fill up the noteDataArray's elements with notes
+	    if len(note['notes']):
+		newPercent = int(float(index)*100.0/float(len(noteTimeLine)))
+		if newPercent != percent:
+		    percent = newPercent
+		beginIndex = int(np.ceil(tickToSampleIndex(note['beginTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
+		endIndex = int(round(tickToSampleIndex(note['endTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
+		for arrayIndecies in range(beginIndex, endIndex): # maybe its endIndex +1 ? close enough....
+		    noteDataArray[arrayIndecies]['notes'] = note['notes']
+
+	trainData = filter(lambda x: 'notes' in x, noteDataArray)
+	note_samples = np.array([each['data'] for each in trainData])
+	pitches = np.array([each['notes'][0]['pitch'] for each in trainData])
+	pitch_range = [np.min(pitches),np.max(pitches)]
+	frequency_range = [2.0**((d-69)/12.0)*440.0 for d in pitch_range] # for cqt...
+	num_octave = (pitch_range[1]-pitch_range[0])/12.0 # for cqt...
+	pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]] #one-hot encoded pitches rescaled from 0 to max(pitches)-min(pitches)
+	return (note_samples, pitches_onehot)
+
+
+
+
+# Process begin
+print('reading data')
+(_, pitches_onehot_one) = readWav() # reading only the pitches.
+note_sample_list = getFilteredDataList()
+fourier_transform = numpy.array([])
+pitches_onehot = numpy.array([])
+while note_sample_list:
+	sample =note_sample_list.pop()
+	thisfft = np.abs(np.fft.rfft(sample))
+	if len(training_data) ==0:
+		training_data = thisfft
+		training_pitches = pitches_onehot
+	else:
+		fourier_transform = np.vstack([fourier_transform,thisfft])
+		pitches_onehot = np.vstack([pitches_onehot, pitches_onehot_one])
+
+	 
+
+
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
-
-pattern = midi.read_midifile("MIDIproba.mid")
-noteTimeLine = createNoteTimeline(pattern[1])
-
-[sampleRate, x] = wavread("midiTeszt22.05k.wav")
-# used variables
-sampleLength = 512
-resolution = pattern.resolution
-bpm = 120  # this depends on sound rendering/recording bpm
-
-# scale to -1.0 -- 1.0
-if x.dtype == 'int16':
-    nb_bits = 16  # -> 16-bit wav files
-elif x.dtype == 'int32':
-    nb_bits = 32  # -> 32-bit wav files
-max_nb_bit = float(2 ** (nb_bits - 1))
-
-samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
-emptyArray = np.empty(int(samples.size / sampleLength))
-noteDataArray= [{'index': i, 'data': samples[i * sampleLength: (i + 1) * sampleLength]} for i, x in
-                           enumerate(emptyArray)]  # could be ordered dict but i dont care
-
-percent = 0
-for index, note in enumerate(noteTimeLine): # fill up the noteDataArray's elements with notes
-    if len(note['notes']):
-        newPercent = int(float(index)*100.0/float(len(noteTimeLine)))
-        if newPercent != percent:
-            percent = newPercent
-        beginIndex = int(np.ceil(tickToSampleIndex(note['beginTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
-        endIndex = int(round(tickToSampleIndex(note['endTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
-        for arrayIndecies in range(beginIndex, endIndex): # maybe its endIndex +1 ? close enough....
-            noteDataArray[arrayIndecies]['notes'] = note['notes']
-
-trainData = filter(lambda x: 'notes' in x, noteDataArray)
-note_samples = np.array([each['data'] for each in trainData])
-pitches = np.array([each['notes'][0]['pitch'] for each in trainData])
-pitch_range = [np.min(pitches),np.max(pitches)]
-frequency_range = [2.0**((d-69)/12.0)*440.0 for d in pitch_range] # for cqt...
-num_octave = (pitch_range[1]-pitch_range[0])/12.0 # for cqt...
-pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]] #one-hot encoded pitches rescaled from 0 to max(pitches)-min(pitches)
-
-#cqt_transform = np.array([cqt(sample,fmin = frequency_range[0], bins_per_octave = 36, n_bins = int(np.ceil(num_octave*36)), sr = sampleRate, hop_length = 2 * sampleLength ) for sample in note_samples]) # I have no idea why we need the hop_length to be 2* sampleLength...
-fourier_transform = np.abs(np.fft.rfft(note_samples))
 
 
 # Crating a lot of training examples by distorting the input.
-print('Distorting training data') # for debug 
-(fourier_transform, pitches_onehot) = generate_distorsed_ffts(fourier_transform, pitches_onehot)
+
 
 # Splitting the dataset to train (inc. validation) and test set.
 test_split = 0.15
