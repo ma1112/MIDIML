@@ -8,7 +8,7 @@ from keras.optimizers import SGD
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
 from generateWavs import getFilteredDataList
-
+import os.path
 # t = sampleNum / samplerate = (tick /resoltuion) * (60/bpm), index = sampleNum / sampleLength
 # => index = tick * (1/resoltuion)* (60/bpm) * (sampleRate )* (sampleLength)
 # resoltion is ticks per beat
@@ -81,7 +81,7 @@ def generate_distorsed_ffts(fft_data,pitches_onehot):
 def readWav():
 	[sampleRate, x] = wavread("midiTeszt22.05k.wav")
 
-def processWav(x,samplerate)
+def processWav(x,sampleRate):
 	pattern = midi.read_midifile("MIDIproba.mid")
 	noteTimeLine = createNoteTimeline(pattern[1])
 	# used variables
@@ -122,24 +122,32 @@ def processWav(x,samplerate)
 	return (note_samples, pitches_onehot)
 
 
-
-
-# Process begin
-print('reading data')
-(note_sample_list, sample_rate) = getFilteredDataList()
-fourier_transform = numpy.array([])
-pitches_onehot = numpy.array([])
-while note_sample_list:
-	print('Processing new x data. List size is ' + len(note_sample_list))
-	x =note_sample_list.pop()
-	(sample, pitches_onehot_this) = processWav(x, sample_rate)	 
-	thisfft = np.abs(np.fft.rfft(sample))
-	if len(fourier_transform) ==0:
-		fourier_transform = thisfft
-		pitches_onehot = pitches_onehot_this
+def get_data(fileName = 'trainingData.npz'):
+#Reads data from disk if exists. If not, generates data from waw.
+	if os.path.isfile(fileName):
+		print('Loading data from file ' + fileName)
+		data = np.load('mat.npz')
+		fourier_transform = data['fourier_transform']
+		pitches_onehot = data['pitches_onehot']	
 	else:
-		fourier_transform = np.vstack([fourier_transform,thisfft])
-		pitches_onehot = np.vstack([pitches_onehot, pitches_onehot_one])
+		print('Generating training data from waw.')
+		(note_sample_list, sample_rate) = getFilteredDataList()
+		fourier_transform = np.array([])
+		pitches_onehot = np.array([])
+		while note_sample_list:
+			print('Processing new x data. List size is ' + str(len(note_sample_list)))
+			x =note_sample_list.pop()
+			(sample, pitches_onehot_this) = processWav(x, sample_rate)	 
+			thisfft = np.abs(np.fft.rfft(sample))
+			if len(fourier_transform) ==0:
+				fourier_transform = thisfft
+				pitches_onehot = pitches_onehot_this
+			else:
+				fourier_transform = np.vstack([fourier_transform,thisfft])
+				pitches_onehot = np.vstack([pitches_onehot, pitches_onehot_this])
+		np.savez(fileName,fourier_transform = fourier_transform, pitches_onehot = pitches_onehot)
+		print('Data saved to disk for next training.')
+	return (fourier_transform, pitches_onehot)
 
 	 
 
@@ -147,7 +155,7 @@ while note_sample_list:
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 
 
-# Crating a lot of training examples by distorting the input.
+(fourier_transform, pitches_onehot) = get_data()
 
 
 # Splitting the dataset to train (inc. validation) and test set.
