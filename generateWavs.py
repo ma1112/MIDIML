@@ -52,6 +52,7 @@ def getFilteredDataList(save = False):
     result = []
     [sampleRate, original] = wavread("midiTeszt22.05k.wav")
     for key in asd:
+	print('Generating noisedfiltered ' + str(key))
         x = running_mean(original, asd[key]).astype('int16')
         x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
         if save:
@@ -59,4 +60,4 @@ def getFilteredDataList(save = False):
             wavwrite(string, 22050, x)
             print(string)
         result.append(x)
-    return result
+    return (result ,sampleRate)

@@ -79,10 +79,11 @@ def generate_distorsed_ffts(fft_data,pitches_onehot):
 
 
 def readWav():
+	[sampleRate, x] = wavread("midiTeszt22.05k.wav")
+
+def processWav(x,samplerate)
 	pattern = midi.read_midifile("MIDIproba.mid")
 	noteTimeLine = createNoteTimeline(pattern[1])
-
-	[sampleRate, x] = wavread("midiTeszt22.05k.wav")
 	# used variables
 	sampleLength = 512
 	resolution = pattern.resolution
@@ -125,16 +126,17 @@ def readWav():
 
 # Process begin
 print('reading data')
-(_, pitches_onehot_one) = readWav() # reading only the pitches.
-note_sample_list = getFilteredDataList()
+(note_sample_list, sample_rate) = getFilteredDataList()
 fourier_transform = numpy.array([])
 pitches_onehot = numpy.array([])
 while note_sample_list:
-	sample =note_sample_list.pop()
+	print('Processing new x data. List size is ' + len(note_sample_list))
+	x =note_sample_list.pop()
+	(sample, pitches_onehot_this) = processWav(x, sample_rate)	 
 	thisfft = np.abs(np.fft.rfft(sample))
-	if len(training_data) ==0:
-		training_data = thisfft
-		training_pitches = pitches_onehot
+	if len(fourier_transform) ==0:
+		fourier_transform = thisfft
+		pitches_onehot = pitches_onehot_this
 	else:
 		fourier_transform = np.vstack([fourier_transform,thisfft])
 		pitches_onehot = np.vstack([pitches_onehot, pitches_onehot_one])
