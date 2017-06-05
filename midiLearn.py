@@ -4,7 +4,7 @@ import midi
 from keras.models import Sequential
 from keras.layers.convolutional import Conv1D
 from keras.layers.recurrent import LSTM
-from keras.optimizers import Adam
+from keras.optimizers import RMSprop
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
 from generateWavs import getFilteredDataList
@@ -25,7 +25,7 @@ def train_model(cqts, combinations, lr):  # trains the model and returns the sav
 	model.add(Conv1D(2,10,input_shape=(None,cqts.shape[1])))
 	model.add(LSTM(cqts.shape[1],activation = "sigmoid", stateful = True)) # sigmoid activation, since the output is scaled between 0 and 1.
 	print("Model Summary: \n" + str(model.summary()))
-	adam = Adam(lr = lr)
+	optimizer = RMSprop(lr = lr)
 	model.compile(optimizer=adam, loss='mean_squared_error',  metrics=['mean_squared_error'])
 	model.fit(cqts, combinations, nb_epoch=15, batch_size=64, shuffle=False,validation_split = 0.2, callbacks = callbacks)
 	#not that dat is already shuffled in the function processWav.
