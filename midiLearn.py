@@ -1,40 +1,20 @@
 from scipy.io.wavfile import read as wavread
 import numpy as np
 import midi
-#from librosa.core import cqt
 from keras.models import Sequential
-from keras.layers import Dense, Activation
-from keras.optimizers import SGD
+from keras.layers.convolutional import Conv1D
+from keras.layers.recurrent import LSTM
+from keras.optimizers import Adam
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
 from generateWavs import getFilteredDataList
 import os.path
-# t = sampleNum / samplerate = (tick /resoltuion) * (60/bpm), index = sampleNum / sampleLength
-# => index = tick * (1/resoltuion)* (60/bpm) * (sampleRate )* (sampleLength)
-# resoltion is ticks per beat
+import librosa.core
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
 
 
-def tickToSampleIndex(tick, resolution, bpm, sampleRate, sampleLength):
-    return float((tick) / float(resolution)) * (float(60) / float(bpm)) * (float(sampleRate) / float(sampleLength))
-
-
-def createNoteTimeline(midiTrack):
-    noteTimeline = []
-    currentNotes = []
-    currentTime = 0
-    for index, item in enumerate(midiTrack):
-        if (item.name != 'End of Track'):
-            if (item.name == 'Note On'):
-                currentNotes.append({'pitch': item.pitch, 'velocity': item.velocity})
-            if (item.name == 'Note Off'):
-                currentNotes.remove({'pitch': item.pitch, 'velocity': item.velocity})
-            currentTime += item.tick
-            endTime = currentTime + midiTrack[index+1].tick - 1
-            noteTimeline.append({'notes': currentNotes[:], 'beginTimeInTicks': currentTime, 'endTimeInTicks': endTime})
-    return noteTimeline
-
-
-def train_model(transformed_data, pitches_onehot, lr):  # trains the model and returns the saved file's filename. (could also return the model, which is not necessarily identical to the saved one.)
+def train_model(cqts, combinations, lr):  # trains the model and returns the saved file's filename. (could also return the model, which is not necessarily identical to the saved one.)
 	model_name = 'model.hd5'
 	log_dir = 'TB_log'
 	callbacks = []
@@ -42,161 +22,136 @@ def train_model(transformed_data, pitches_onehot, lr):  # trains the model and r
 	callbacks.append(ModelCheckpoint(filepath=model_name,   verbose=1, save_best_only=True, period=1)) # saves the model if the result is improved at the current epoch
 	callbacks.append(EarlyStopping(patience = 3,verbose = 1))
 	model = Sequential()
-	#Maybe scaling the input? Or the activated layers?
-	model.add(Dense(input_dim=transformed_data.shape[1], activation='relu', output_dim =10))
-	model.add(Dense(activation='softmax', output_dim =pitches_onehot.shape[1]))
+	model.add(Conv1D(2,10,input_shape=(None,cqts.shape[1])))
+	model.add(LSTM(cqts.shape[1],activation = "sigmoid", stateful = True)) # sigmoid activation, since the output is scaled between 0 and 1.
 	print("Model Summary: \n" + str(model.summary()))
-	sgd = SGD(lr=lr,  momentum=0.9, nesterov=True)
-	model.compile(optimizer=sgd, loss='categorical_crossentropy',  metrics=['accuracy'])
-	model.fit(transformed_data, pitches_onehot, nb_epoch=15, batch_size=32, shuffle=True,validation_split = 0.2, callbacks = callbacks)
-	return model_name
-
-
-def generate_random_filter(length_filter = 257, minsupressed = 8, maxsupressed = 26):
-	# returns a random noisy high pass filter
-	filter = np.ones(length_filter)
-	sup_max = np.random.randint(minsupressed,maxsupressed+1)
-	supress_part = np.linspace(0.25,sup_max,sup_max) * (0.5 + 0.5 * np.random.rand(sup_max))
-	supress_part[np.random.randint(0,sup_max,3)] = 1
-
-	filter[0:len(supress_part)] = supress_part
-	filter = filter + np.abs( 0.8 + np.random.randn(len(filter)) /10)
-	return filter
-	
-	
-
-
-def generate_distorsed_ffts(fft_data,pitches_onehot):
-
-#	distorted_pitches_onehot = np.matlib.repmat(pitches_onehot,num_filters,1)
-	filters = np.array([generate_random_filter(fft_data.shape[1]) for i in range(fft_data.shape[0])])
-	distorted_data = fft_data * filters
-	return (distorted_data, pitches_onehot)
-	
-	
+	adam = Adam(lr = lr)
+	model.compile(optimizer=adam, loss='mean_squared_error',  metrics=['mean_squared_error'])
+	model.fit(cqts, combinations, nb_epoch=15, batch_size=64, shuffle=False,validation_split = 0.2, callbacks = callbacks)
+	#not that dat is already shuffled in the function processWav.
+	return model_name # model is saved with the ModelCheckpoint callback.
 
 
 
+# Reads a (filtered) wav file, and returns training data (cqt transormed samples and output vectors)
+#Convention: In the wav file, each note of the note indicated in the combMatrix lasts for noteDurationInBeat beats.
+#After each sound [but the last], there is silence, with the same length. ( Silence is cut off from the training data, but needed
+# for filtering the sound in a prev. step.
+def processWav(x,sampleRate, combMatrix = None):
+	if combMatrix is None:
+		if os.path.isfile("combinationMatrix.npy"):
+			combMatrix = np.load("combinationMatrix.npy")
+		else:
+			raise ValueError("Process Wav needs the combination matrix ( generated by createMIDI), but file is not found.")
 
-def readWav():
-	[sampleRate, x] = wavread("midiTeszt22.05k.wav")
-
-def processWav(x,sampleRate):
-	pattern = midi.read_midifile("MIDIproba.mid")
-	noteTimeLine = createNoteTimeline(pattern[1])
 	# used variables
-	sampleLength = 512
-	resolution = pattern.resolution
-	bpm = 120  # this depends on sound rendering/recording bpm
+	sampleLength = 512 # in samples
+	# this depends on sound rendering/recording bpm
+	noteDurationInBeat = 4  # sound duration in beats ( each sound is followed by silence of the same length.)
+	bpm = 120
+	#calculated variables:
+	bps = bpm / 60 # beat per sec
+	noteDurationinSamples = noteDurationInBeat * sampleRate / bps # note duration in samples
 
-	# scale to -1.0 -- 1.0
-	if x.dtype == 'int16':
-	    nb_bits = 16  # -> 16-bit wav files
-	elif x.dtype == 'int32':
-	    nb_bits = 32  # -> 32-bit wav files
-	max_nb_bit = float(2 ** (nb_bits - 1))
+	#Checking if wav format is okay.
+	numberOfNotes = (len(x)+noteDurationinSamples) / (2.0*noteDurationinSamples) # there is silence after each not, but the last
+	if np.round(numberOfNotes) == numberOfNotes:
+		nuberOfNotes = int(noteDurationinSamples)
+	else:
+		raise ValueError("In processWav function, the length of the data is " , len(x) , " samples.",
+						 "The length of a note is determined to be ", noteDurationinSamples, " samples",
+						 "Which means that the total number of notes in the data is ", nuberOfNotes,
+						 "which is not an integer number. \nDid you forgat that there is a silence after each",
+						 "but the last note?")
+	if numpy.mod(noteDurationinSamples ,sampleLength) !=0:
+		raise ValueError("In prodessWav note duration is calculated to be " , noteDurationinSamples , "samples,"
+						 "but each not should be devided to samples with legth ", sampleLength, "."
+						 "Error: they are not multiple of each other.")
 
-	samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
-	emptyArray = np.empty(int(samples.size / sampleLength))
-	noteDataArray= [{'index': i, 'data': samples[i * sampleLength: (i + 1) * sampleLength]} for i, x in
-		                   enumerate(emptyArray)]  # could be ordered dict but i dont care
-
-	percent = 0
-	for index, note in enumerate(noteTimeLine): # fill up the noteDataArray's elements with notes
-	    if len(note['notes']):
-		newPercent = int(float(index)*100.0/float(len(noteTimeLine)))
-		if newPercent != percent:
-		    percent = newPercent
-		beginIndex = int(np.ceil(tickToSampleIndex(note['beginTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
-		endIndex = int(round(tickToSampleIndex(note['endTimeInTicks'], resolution, bpm, sampleRate, sampleLength)))
-		for arrayIndecies in range(beginIndex, endIndex): # maybe its endIndex +1 ? close enough....
-		    noteDataArray[arrayIndecies]['notes'] = note['notes']
+	numberOfRepeats = nuberOfNotes *1.0 / combMatrix.shape[0] # in a way file the note sequence of combMatrix may be repeated.
+	if np.round(numberOfRepeats) == numberOfRepeats:
+		numberOfRepeats = int(numberOfRepeats)
+	else:
+		raise ValueError("In processWav function, the length of the data is " , len(x) , " samples.",
+						"the total number of notes in the data is ", nuberOfNotes,
+						 "which is not a multiple of the notes in the combMatrix with a shape" , combMatrix.shape)
 
 
-	# handling cases when no note is played:
-	hasNoteArray = filter(lambda x: 'notes' in x, noteDataArray)
-	original_pitches = np.array([each['notes'][0]['pitch'] for each in hasNoteArray])
-	min_original_pitch = np.min(original_pitches)
-	noSoundPitch = min_original_pitch - 1
-	for element in noteDataArray:
-		element.setdefault('notes',[{'pitch':noSoundPitch}])
+#Scaling removed, and moved after CQT.
+	# scale to 0.0 -- 1.0 !!! #TODO is it the same at the frontend?
+#	if x.dtype == 'int16':
+#	    nb_bits = 16  # -> 16-bit wav files
+#	elif x.dtype == 'int32':
+#	    nb_bits = 32  # -> 32-bit wav files
+#	max_nb_bit = float(2 ** (nb_bits - 1))
+#	samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
 
-	trainData = noteDataArray
-	note_samples = np.array([each['data'] for each in trainData])
-	pitches = np.array([each['notes'][0]['pitch'] for each in trainData])
-	pitch_range = [np.min(pitches),np.max(pitches)]
-	pitches_onehot = np.eye(pitch_range[1]-pitch_range[0]+1)[pitches-pitch_range[0]] #one-hot encoded pitches rescaled from 0 to max(pitches)-min(pitches)
-	return (note_samples, pitches_onehot)
+	combMatrix = np.repeat(combMatrix, numberOfRepeats, 0)
+	combMatrixMaxs = np.max(combMatrix, 0)
+	combMatrix = combMatrix.astype(np.float) / combMatrixMaxs
+	print("combMatrix is normed by the vector ", combMatrixMaxs)
+
+	samples = samples.reshape(2*numberOfNotes-1,noteDurationinSamples)# reshapes: every row is a note [ every other is just silence]
+	samples = samples[0::2] # removes parts where only silence is played.
+	samples,combMatrix = shuffle(samples,combMatrix,random_state=13002) # shuffles matricies.
+	samples = samples.reshape(sampleLength,-1) # reshapes so each row is a sample of a note.
+	#Shuffle is applied before reshape(sampleLengthm-1), samples fromthe same notes are following each other, but
+	#note combinations are shuffled.
+
+	cqts = librosa.core.cqt (samples,sampleRate)
+	cqts = librosa.core.logamplitude(cqts)
+	cqts = cqts.astype(float) / np.max(cqts,0)
+
+
+
+	if combMatrix.shape[0] != cqts.shape[0]:
+		raise ValueError("After processing the wav file in processWav, the generated samples",
+			  "and the generated combMatrix has different sizes. (First dimension should match.)\nShapes are: ",
+						 "combMatrix: " , combMatrix.shape, "\n cqts: " , cqts.shape)
+
+	return (cqts, combMatrix)
 
 
 def get_data(fileName = 'trainingData.npz'):
 #Reads data from disk if exists. If not, generates data from waw.
 	if os.path.isfile(fileName):
 		print('Loading data from file ' + fileName)
-		data = np.load('mat.npz')
-		fourier_transform = data['fourier_transform']
-		pitches_onehot = data['pitches_onehot']	
+		data = np.load(fileName)
+		cqt_transform = data['cqt_transform']
+		combinations = data['combinations']
 	else:
+		cqt_transform = None
+		combinations = None
 		print('Generating training data from waw.')
 		(note_sample_list, sample_rate) = getFilteredDataList()
-		fourier_transform = np.array([])
-		pitches_onehot = np.array([])
 		while note_sample_list:
 			print('Processing new x data. List size is ' + str(len(note_sample_list)))
 			x =note_sample_list.pop()
-			(sample, pitches_onehot_this) = processWav(x, sample_rate)	 
-			thisfft = np.abs(np.fft.rfft(sample))
-			if len(fourier_transform) ==0:
-				fourier_transform = thisfft
-				pitches_onehot = pitches_onehot_this
+			(cqt_transform_this, combinations_this) = processWav(x, sample_rate)
+			if cqt_transform is None:
+				cqt_transform = cqt_transform_this
+				combinations = combinations_this
 			else:
-				fourier_transform = np.vstack([fourier_transform,thisfft])
-				pitches_onehot = np.vstack([pitches_onehot, pitches_onehot_this])
-		np.savez(fileName,fourier_transform = fourier_transform, pitches_onehot = pitches_onehot)
+				cqt_transform = np.vstack([cqt_transform,cqt_transform_this])
+				combinations = np.vstack([combinations, combinations_this])
+		print("Data generation finished, saving it to disk.")
+		np.savez(fileName,cqt_transform = cqt_transform, combinations = combinations)
 		print('Data saved to disk for next training.')
-	return (fourier_transform, pitches_onehot)
-
-	 
-
+	return (cqt_transform, combinations)
 
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
-
-
-(fourier_transform, pitches_onehot) = get_data()
-
-
+(cqt_transform, combinations) = get_data()
 # Splitting the dataset to train (inc. validation) and test set.
-test_split = 0.15
-test_num = int(np.ceil(test_split * fourier_transform.shape[0]))
-test_indexes = np.random.randint(fourier_transform.shape[0],size = (test_num,))
-test_pitches_onehot = pitches_onehot[test_indexes]
-test_fourier_transform = fourier_transform[test_indexes]
-
-pitches_onehot = np.delete(pitches_onehot,test_indexes,0)
-fourier_transform = np.delete(fourier_transform,test_indexes,0)
+cqt_transform_train, cqt_transform_test, combinations_train, combinations_test = train_test_split(cqt_transform,combinations, test_size = 0.15, random_state = 13002  )
 
 #Train  ( chu - chu )
 print("Training")
-trained_model_path = train_model(fourier_transform,pitches_onehot, 0.005)
+trained_model_path = train_model(cqt_transform_train,combinations_train, 0.005)
 
 #Load saved model and test on the test data
 print("Reloadig the model from the hard drive and testing it using the test dataset.")
 model = load_model(trained_model_path)
-test_accuracy = model.evaluate(test_fourier_transform,test_pitches_onehot)[1] # returns the loss and accuracy in this order.
+test_accuracy = model.evaluate(cqt_transform_test,combinations_test)[1] # returns the loss and accuracy in this order.
 print("\nTest accuracy: " + str(test_accuracy))
 
-#Calculating the accuracy after using predict() function, which should has the same result
-
-test_predictions = model.predict(test_fourier_transform)
-test_prediction_midinote = np.argmax(test_predictions,1) # not actual midi note, the lowest note in the training set is at the 0-th index. Add pitch_range[0] to get the actual midi note.
-test_real_midinote = np.argmax(test_pitches_onehot,1) # not actual midi note, but has the same scaling as test_prediction_midinote.
-test_matching_notes = np.sum(test_real_midinote == test_prediction_midinote)
-test_accuracy_by_hand = float(test_matching_notes) / test_num
-print("Test accuracy calculated using the  predicted notes " + str(test_accuracy_by_hand))
-
-if np.abs(test_accuracy - test_accuracy_by_hand) <0.01:
-	print("Test accuracy is indeed the same when using built-in evaluation or predicting the notes and evaluating ourselves. Math works then...")
-else: # should never ever happen
-	print("Test accuracy was not the same using built-in evaluation and predicting the accuracy ourselves. What could happen?") 
-print("end")
 print("See the training log by executing $ tensorboard --logdir='.'")

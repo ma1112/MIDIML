@@ -1,14 +1,17 @@
 from scipy.io.wavfile import read as wavread
 from scipy.io.wavfile import write as wavwrite
 import numpy as np
+import os.path
 
 
-def calcH(n, f, fs):
+# Calculations to determine length of kernel at running_mean for a given cut-off frequency.
+def calcH(n, f, fs): # calculates transfer function
     w = 2 * np.pi * f / fs
     h = 1.0 / n * np.sin(w * n / 2) / np.sin(w / 2)
     return h
 
 
+# gets filter width
 def searchN(f, H, fs):
     for n in range(1, 1000):
         HThis = calcH(n, f, fs)
@@ -19,7 +22,7 @@ def searchN(f, H, fs):
     else:
         return n
 
-
+# gets filter width for various frequencies.
 def getNs(fs=22050, H=0.5, fArray=np.linspace(100, 5000, 50), verbose=0):
     resultDict = {}
     for i in range(len(fArray)):
@@ -47,17 +50,25 @@ def running_mean(x, windowSize):
 # x = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
 # wavwrite('noisedfiltered1.wav',22050, x)
 
-def getFilteredDataList(save = False):
-    asd = getNs()
+
+def getFilteredDataList(inputFileName, load = True, save = True):
+    frequencyFilterWidthMap = getNs()
     result = []
-    [sampleRate, original] = wavread("midiTeszt22.05k.wav")
-    for key in asd:
-	print('Generating noisedfiltered ' + str(key))
-        x = running_mean(original, asd[key]).astype('int16')
-        x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
-        if save:
-            string = 'noisedfiltered' + str(key) + '.wav'
-            wavwrite(string, 22050, x)
-            print(string)
+    [originalSampleRate, original] = wavread(inputFileName)
+    for cutOffFrequency in frequencyFilterWidthMap:
+        outputFileName = inputFileName + '_noisedfiltered_' + str(cutOffFrequency) + '.wav'
+        if os.path.isfile(outputFileName) and load:
+            print("Loading file ", outputFileName, " from disk." )
+            [sampleRate, x] = wavread(outputFileName)
+            if sampleRate != originalSampleRate:
+                raise ValueError("Sample rate of file ", outputFileName, " does not eaqual the sample rate of",
+                                                                         " the original file " , inputFileName)
+        else:
+            print('Generating noisedfiltered ', cutOffFrequency)
+            x = running_mean(original, frequencyFilterWidthMap[cutOffFrequency]).astype('int16')
+            x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
+            if save:
+                wavwrite(outputFileName, originalSampleRate, x)
+                print("saved: ", outputFileName)
         result.append(x)
-    return (result ,sampleRate)
+    return (result ,originalSampleRate)

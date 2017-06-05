@@ -14,13 +14,14 @@ maxNotesTogether = 3 # Determines maximal number of notes played together.
 midiTime     = 0    # In beats
 duration = 4    # In beats
 tempo    = 120   # In BPM
-volumes =  np.linspace(20,128,10).astype(int)
+volumes =  np.linspace(20,128,3).astype(int)
 #volume   = 19  # 0-127, as per the MIDI standard
 
 # Returns a matrix with shape (?,maxNotesTogether+1), where the first element of the -1 axis is: number of notes played
 # at the row, then this ammount of notes are present in the matrix in desc order. Other values are 0.
 def getNoteCombinations(degrees, maxNotesTogether):
-    result = np.zeros((0,maxNotesTogether+1)) # last dimension: how many notes are not zero, and then the notes.
+    result = np.zeros((1,maxNotesTogether+1)) # last dimension: how many notes are not zero, and then the notes.
+    #result already includes all-0 row. (silecnce).
     for numberOfNotes in range(1,maxNotesTogether+1):
         thisCombination = getNoteCombinationForGivenNumberOfNotes(numberOfNotes,degrees)
         #Extends the matrix with 0-s so each have the same size in axis -1
@@ -34,8 +35,8 @@ def getNoteCombinations(degrees, maxNotesTogether):
 def getNoteCombinationForGivenNumberOfNotes(numberOfNotes, degrees):
     print("Getting combination matrix with " , numberOfNotes , " notes played together.")
     if numberOfNotes ==1:
-        combinations = np.zeros((len(degrees)+1,1))
-        combinations[1:,0] = degrees
+        combinations = np.zeros((len(degrees),1))
+        combinations[:,0] = degrees
     else:
         combinations = itertools.product(degrees,repeat = numberOfNotes)
         combinations = np.flip(np.sort(np.asarray(list(combinations)),axis=-1),-1) # desc sort.
