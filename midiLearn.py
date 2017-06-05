@@ -12,7 +12,7 @@ import os.path
 import librosa.core
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
-
+import sklearn.preprocessing
 
 def train_model(cqts, combinations, lr):  # trains the model and returns the saved file's filename. (could also return the model, which is not necessarily identical to the saved one.)
 	model_name = 'model.hd5'
@@ -100,7 +100,8 @@ def processWav(x,sampleRate, combMatrix = None):
 
 	cqts = librosa.core.cqt (samples,sampleRate)
 	cqts = librosa.core.logamplitude(cqts)
-	cqts = cqts.astype(float) / np.max(cqts,0)
+	cqts = sklearn.preprocessing.normalize(cqts,axis=1)
+
 
 
 
