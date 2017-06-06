@@ -65,26 +65,26 @@ def processWav(x,sampleRate, combMatrix = None):
 						 "but the last note?")
 	if numpy.mod(noteDurationinSamples ,sampleLength) !=0:
 		raise ValueError("In prodessWav note duration is calculated to be " , noteDurationinSamples , "samples,"
-						 "but each not should be devided to samples with legth ", sampleLength, "."
-						 "Error: they are not multiple of each other.")
+																									  "but each not should be devided to samples with legth ", sampleLength, "."
+																																											 "Error: they are not multiple of each other.")
 
 	numberOfRepeats = nuberOfNotes *1.0 / combMatrix.shape[0] # in a way file the note sequence of combMatrix may be repeated.
 	if np.round(numberOfRepeats) == numberOfRepeats:
 		numberOfRepeats = int(numberOfRepeats)
 	else:
 		raise ValueError("In processWav function, the length of the data is " , len(x) , " samples.",
-						"the total number of notes in the data is ", nuberOfNotes,
+						 "the total number of notes in the data is ", nuberOfNotes,
 						 "which is not a multiple of the notes in the combMatrix with a shape" , combMatrix.shape)
 
 
-#Scaling removed, and moved after CQT.
+	#Scaling removed, and moved after CQT.
 	# scale to 0.0 -- 1.0 !!! #TODO is it the same at the frontend?
-#	if x.dtype == 'int16':
-#	    nb_bits = 16  # -> 16-bit wav files
-#	elif x.dtype == 'int32':
-#	    nb_bits = 32  # -> 32-bit wav files
-#	max_nb_bit = float(2 ** (nb_bits - 1))
-#	samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
+	#	if x.dtype == 'int16':
+	#	    nb_bits = 16  # -> 16-bit wav files
+	#	elif x.dtype == 'int32':
+	#	    nb_bits = 32  # -> 32-bit wav files
+	#	max_nb_bit = float(2 ** (nb_bits - 1))
+	#	samples = x / (max_nb_bit + 1.0)  # samples is a numpy array of float representing the samples
 
 	combMatrix = np.repeat(combMatrix, numberOfRepeats, 0)
 	combMatrixMaxs = np.max(combMatrix, 0)
@@ -107,14 +107,14 @@ def processWav(x,sampleRate, combMatrix = None):
 
 	if combMatrix.shape[0] != cqts.shape[0]:
 		raise ValueError("After processing the wav file in processWav, the generated samples",
-			  "and the generated combMatrix has different sizes. (First dimension should match.)\nShapes are: ",
+						 "and the generated combMatrix has different sizes. (First dimension should match.)\nShapes are: ",
 						 "combMatrix: " , combMatrix.shape, "\n cqts: " , cqts.shape)
 
 	return (cqts, combMatrix)
 
 
 def get_data(fileName = 'trainingData.npz'):
-#Reads data from disk if exists. If not, generates data from waw.
+	#Reads data from disk if exists. If not, generates data from waw.
 	if os.path.isfile(fileName):
 		print('Loading data from file ' + fileName)
 		data = np.load(fileName)
