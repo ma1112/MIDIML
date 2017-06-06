@@ -70,5 +70,8 @@ def getFilteredDataList(inputFileName, load = True, save = True):
             if save:
                 wavwrite(outputFileName, originalSampleRate, x)
                 print("saved: ", outputFileName)
+        if len(x) != len(original):
+            raise ValueError("Filtering the wav file failed. Original input is ", len(original), " long",
+                             "but the filtered data is " , len(x) , " long.")
         result.append(x)
     return (result ,originalSampleRate)
