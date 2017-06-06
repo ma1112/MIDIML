@@ -1,6 +1,5 @@
 from scipy.io.wavfile import read as wavread
 import numpy as np
-import midi
 from keras.models import Sequential
 from keras.layers.convolutional import Conv1D
 from keras.layers.recurrent import LSTM
@@ -13,6 +12,13 @@ import librosa.core
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 import sklearn.preprocessing
+
+
+#parameters
+lr = 0.005 # learning rate
+wavFileName = "nylon.wav" # learn from this file
+
+
 
 def train_model(cqts, combinations, lr):  # trains the model and returns the saved file's filename. (could also return the model, which is not necessarily identical to the saved one.)
 	model_name = 'model.hd5'
@@ -113,18 +119,19 @@ def processWav(x,sampleRate, combMatrix = None):
 	return (cqts, combMatrix)
 
 
-def get_data(fileName = 'trainingData.npz'):
-	#Reads data from disk if exists. If not, generates data from waw.
-	if os.path.isfile(fileName):
-		print('Loading data from file ' + fileName)
-		data = np.load(fileName)
+def get_data(fileName):
+	#Reads data from disk if exists. If not, generates data from waw from wav file with name  fileName.
+	dataFileName = fileName + "_trainData.npy"
+	if os.path.isfile(dataFileName):
+		print('Loading data from file ' + dataFileName)
+		data = np.load(dataFileName)
 		cqt_transform = data['cqt_transform']
 		combinations = data['combinations']
 	else:
 		cqt_transform = None
 		combinations = None
 		print('Generating training data from waw.')
-		(note_sample_list, sample_rate) = getFilteredDataList()
+		(note_sample_list, sample_rate) = getFilteredDataList(fileName)
 		while note_sample_list:
 			print('Processing new x data. List size is ' + str(len(note_sample_list)))
 			x =note_sample_list.pop()
@@ -136,18 +143,18 @@ def get_data(fileName = 'trainingData.npz'):
 				cqt_transform = np.vstack([cqt_transform,cqt_transform_this])
 				combinations = np.vstack([combinations, combinations_this])
 		print("Data generation finished, saving it to disk.")
-		np.savez(fileName,cqt_transform = cqt_transform, combinations = combinations)
+		np.savez(dataFileName,cqt_transform = cqt_transform, combinations = combinations)
 		print('Data saved to disk for next training.')
 	return (cqt_transform, combinations)
 
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
-(cqt_transform, combinations) = get_data()
+(cqt_transform, combinations) = get_data(wavFileName)
 # Splitting the dataset to train (inc. validation) and test set.
 cqt_transform_train, cqt_transform_test, combinations_train, combinations_test = train_test_split(cqt_transform,combinations, test_size = 0.15, random_state = 13002  )
 
 #Train  ( chu - chu )
 print("Training")
-trained_model_path = train_model(cqt_transform_train,combinations_train, 0.005)
+trained_model_path = train_model(cqt_transform_train,combinations_train, lr)
 
 #Load saved model and test on the test data
 print("Reloadig the model from the hard drive and testing it using the test dataset.")
