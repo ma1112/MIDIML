@@ -66,9 +66,9 @@ def processWav(x,sampleRate, combMatrix = None):
 	else:
 		raise ValueError("In processWav function, the length of the data is " , len(x) , " samples.",
 						 "The length of a note is determined to be ", noteDurationinSamples, " samples",
-						 "Which means that the total number of notes in the data is ", nuberOfNotes,
-						 "which is not an integer number. \nDid you forgat that there is a silence after each",
-						 "but the last note?")
+						 "Which means that the total number of notes in the data is ", numberOfNotes,
+						 "which is not an integer number. \nDid you forget that there is a silence after each",
+						 "but the last note?\n(Shape of combMatrix is " , combMatrix.shape)
 	if numpy.mod(noteDurationinSamples ,sampleLength) !=0:
 		raise ValueError("In prodessWav note duration is calculated to be " , noteDurationinSamples , "samples,"
 																									  "but each not should be devided to samples with legth ", sampleLength, "."

@@ -36,8 +36,11 @@ def getNs(fs=22050, H=0.5, fArray=np.linspace(100, 5000, 50), verbose=0):
 
 
 def running_mean(x, windowSize):
-    cumsum = np.cumsum(np.insert(x, 0, 0))
-    return (cumsum[windowSize:] - cumsum[:-windowSize]) / windowSize
+    padded = np.zeros((len(x)+windowSize-1,))
+    padded[int(np.floor((windowSize-1)/2)):-int(np.ceil((windowSize-1)/2))] = x # pads input with 0-s, so output will have the same lengthas input
+    cumsum = np.cumsum(padded,dtype = float)
+    cumsum[windowSize:] = cumsum[windowSize:] - cumsum[:-windowSize]
+    return cumsum[windowSize-1:] / windowSize
 
 
 # scale to -1.0 -- 1.0
@@ -64,8 +67,9 @@ def getFilteredDataList(inputFileName, load = True, save = True):
                 raise ValueError("Sample rate of file ", outputFileName, " does not eaqual the sample rate of",
                                                                          " the original file " , inputFileName)
         else:
-            print('Generating noisedfiltered ', cutOffFrequency)
-            x = running_mean(original, frequencyFilterWidthMap[cutOffFrequency]).astype('int16')
+            windowSize =  frequencyFilterWidthMap[cutOffFrequency]
+            print('Generating noisedfiltered ', cutOffFrequency, ' data, with windowSize ', windowSize)
+            x = running_mean(original, windowSize).astype('int16')
             x = x + np.random.normal(0, 10, len(x)).astype('int16') # to add noise.
             if save:
                 wavwrite(outputFileName, originalSampleRate, x)
