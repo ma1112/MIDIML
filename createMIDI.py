@@ -2,19 +2,14 @@ from midiutil import MIDIFile
 import itertools
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-import time
-
-
-programStart = time.time()
 
 degrees  = range(40,73)  # MIDI note number. Sould be positive. [Silence is added by the code]
 track    = 0
 maxNotesTogether = 3 # Determines maximal number of notes played together.
 midiTime     = 0    # In beats
-duration = 4    # In beats
+noteDuration = 4    # In beats
 tempo    = 120   # In BPM
-volumes =  np.linspace(20,128,3).astype(int)
+volumes =  np.linspace(20,120,3).astype(int)
 #volume   = 19  # 0-127, as per the MIDI standard
 
 # Returns a matrix with shape (?,maxNotesTogether+1), where the first element of the -1 axis is: number of notes played
@@ -50,33 +45,22 @@ def getNoteCombinationForGivenNumberOfNotes(numberOfNotes, degrees):
 combinationMatrix = getNoteCombinations(degrees,maxNotesTogether)
 
 #creates MIDI file
-MyMIDI = MIDIFile(1)  # One track, defaults to format 1 (tempo track is created
-                      # automatically)
-MyMIDI.addTempo(track, midiTime, tempo)
+
 
 #Actually generates MIDI music
 print("Generating MIDI from matrix.")
-numRows = combinationMatrix.shape[0]
-for rowNumber in tqdm(range(numRows)): # for each row in the matrix ,i.e. for each pitch combination
-    numPitches = combinationMatrix[rowNumber,0] # how many pithces are actually there in the current combination
-    for v, volume in enumerate(volumes): # Same volume for both notes. TODO: can be imrpoved?
+for volume in volumes: # Same volume for every notes. TODO: can be imrpoved?
+    MyMIDI = MIDIFile(1)  # One track, defaults to format 1 (tempo track is created
+    # automatically)
+    MyMIDI.addTempo(track, midiTime, tempo)
+    print("Generating Midi with volume " , volume)
+    numRows = combinationMatrix.shape[0]
+    for rowNumber in range(numRows): # for each row in the matrix ,i.e. for each pitch combination
+        numPitches = combinationMatrix[rowNumber,0] # how many pithces are actually there in the current combination
         for numPitch in range(numPitches): # for each pitch, add the pitch to the same timestamp
-            MyMIDI.addNote(track, numPitch, combinationMatrix[rowNumber,numPitch+1], duration*2 * rowNumber + v * duration*2 * numRows, duration, volume)
-
-
-#saves output
-saveStart = time.time()
-print("Saving MIDI and combination matrix.")
-with open("MIDIproba.mid", "wb") as output_file:
-    MyMIDI.writeFile(output_file)
-saveEnd = time.time()
-print("Saving MIDI file took " , saveEnd - saveStart , " sec. ")
-
-saveStart = time.time()
+            MyMIDI.addNote(track, numPitch, combinationMatrix[rowNumber,numPitch+1], noteDuration   * rowNumber, noteDuration, volume)
+    #saves output
+    with open("MIDIproba_volume_" + str(volume) + ".mid", "wb") as output_file:
+        MyMIDI.writeFile(output_file)
 np.save("combinationMatrix.npy",combinationMatrix)
-saveEnd = time.time()
-print("Saving numpy array took " , saveEnd - saveStart , " sec. ")
-
-print("Created and saved MIDI file and combination matrix with ", combinationMatrix.shape[0], " different note combinations.")
-programEnd = time.time()
-print("The code was running for " , programEnd - programStart , "sec.")
+print("Created and saved MIDI files and combination matrix with ", combinationMatrix.shape[0], " different note combinations.")
