@@ -86,13 +86,13 @@ def processWav(x,sampleRate, combMatrix = None):
 	#preparing samples
 	samples = samples[:,:samplesFromNote*sampleLength] # cutting the end. (44100 is not a multiple of 512)
 
-	samples = samples.reshape(len(samples),) # flat array
+	samples = samples.flatten() # flat array
 	#Shuffle is applied before reshape(sampleLengthm-1), samples from the same notes are following each other, but
 	#note combinations are shuffled.
 	print("Calculating CQTs")
-	cqt = librosa.core.cqt(samples.astype(np.float),sampleRate,sampleLength)[:,-2]
+	cqt = librosa.core.cqt(samples.astype(np.float),sampleRate,sampleLength)[:,:-1].transpose()
 	cqt = librosa.core.logamplitude(cqt)
-	cqts = sklearn.preprocessing.normalize(cqt,axis=0)
+	cqts = sklearn.preprocessing.normalize(cqt,axis=1)
 
 	if combMatrix.shape[0] != cqts.shape[0]:
 		raise ValueError("After processing the wav file in processWav, the generated samples",
@@ -131,6 +131,7 @@ def get_data(fileName):
 
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 (cqt_transform, combinations) = get_data(wavFileName)
+
 # Splitting the dataset to train (inc. validation) and test set.
 cqt_transform_train, cqt_transform_test, combinations_train, combinations_test = train_test_split(cqt_transform,combinations, test_size = 0.15, random_state = 13002  )
 
