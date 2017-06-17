@@ -2,6 +2,7 @@ from scipy.io.wavfile import read as wavread
 import numpy as np
 from keras.models import Sequential
 from keras.layers.convolutional import Conv1D
+from keras.layers.core import Dense
 from keras.layers.recurrent import LSTM
 from keras.optimizers import RMSprop
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
@@ -28,12 +29,12 @@ def train_model(cqts, combinations, lr):  # trains the model and returns the sav
 	callbacks.append(ModelCheckpoint(filepath=model_name,   verbose=1, save_best_only=True, period=1)) # saves the model if the result is improved at the current epoch
 	callbacks.append(EarlyStopping(patience = 3,verbose = 1))
 	model = Sequential()
-	model.add(Conv1D(2,10,input_shape=(None,cqts.shape[1])))
-	model.add(LSTM(cqts.shape[1],activation = "sigmoid", stateful = True)) # sigmoid activation, since the output is scaled between 0 and 1.
+	#model.add(Conv1D(2,10,input_shape=cqts.shape))
+	model.add(LSTM(combinations.shape[1],activation = "sigmoid", stateful = True, batch_input_shape = (12,cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
 	print("Model Summary: \n" + str(model.summary()))
 	optimizer = RMSprop(lr = lr)
-	model.compile(optimizer=adam, loss='mean_squared_error',  metrics=['mean_squared_error'])
-	model.fit(cqts, combinations, nb_epoch=15, batch_size=64, shuffle=False,validation_split = 0.2, callbacks = callbacks)
+	model.compile(optimizer=optimizer, loss='mean_squared_error',  metrics=['mean_squared_error'])
+	model.fit(cqts, combinations, nb_epoch=15, batch_size=12, shuffle=False,validation_split = 0.2, callbacks = callbacks)
 	#not that dat is already shuffled in the function processWav.
 	return model_name # model is saved with the ModelCheckpoint callback.
 
@@ -103,7 +104,7 @@ def processWav(x,sampleRate, combMatrix = None):
 
 def get_data(fileName):
 	#Reads data from disk if exists. If not, generates data from waw from wav file with name  fileName.
-	dataFileName = fileName + "_trainData.npy"
+	dataFileName = fileName + "_trainData.npz"
 	if os.path.isfile(dataFileName):
 		print('Loading data from file ' + dataFileName)
 		data = np.load(dataFileName)
@@ -132,11 +133,13 @@ def get_data(fileName):
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 (cqt_transform, combinations) = get_data(wavFileName)
 
+cqt_transform = cqt_transform[:,np.newaxis,:]
 # Splitting the dataset to train (inc. validation) and test set.
 cqt_transform_train, cqt_transform_test, combinations_train, combinations_test = train_test_split(cqt_transform,combinations, test_size = 0.15, random_state = 13002  )
 
 #Train  ( chu - chu )
-print("Training")
+print("Training with :\ntrain_data shape: " , cqt_transform_train.shape, " label shape: ",combinations_train.shape)
+
 trained_model_path = train_model(cqt_transform_train,combinations_train, lr)
 
 #Load saved model and test on the test data
