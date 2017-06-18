@@ -4,7 +4,8 @@ from keras.models import Sequential
 from keras.layers.convolutional import Conv1D
 from keras.layers.core import Dense
 from keras.layers.recurrent import LSTM
-from keras.optimizers import RMSprop
+from keras.optimizers import RMSprop, Adam # I do not know which to use
+from keras.layers.wrappers import TimeDistributed
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
 from generateWavs import getFilteredDataList
@@ -30,11 +31,12 @@ def train_model(cqts, combinations, lr):  # trains the model and returns the sav
 	callbacks.append(EarlyStopping(patience = 3,verbose = 1))
 	model = Sequential()
 	#model.add(Conv1D(2,10,input_shape=cqts.shape))
-	model.add(LSTM(combinations.shape[1],activation = "sigmoid", stateful = True, batch_input_shape = (12,cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
+	model.add(LSTM(combinations.shape[2],activation = "sigmoid", return_sequences = True,  input_shape = (cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
+	model.add(TimeDistributed(Dense(combinations.shape[2],activation="sigmoid")))
 	print("Model Summary: \n" + str(model.summary()))
 	optimizer = RMSprop(lr = lr)
-	model.compile(optimizer=optimizer, loss='mean_squared_error',  metrics=['mean_squared_error'])
-	model.fit(cqts, combinations, nb_epoch=15, batch_size=12, shuffle=False,validation_split = 0.2, callbacks = callbacks)
+	model.compile(optimizer=optimizer, loss='binary_crossentropy',  metrics=['accuracy'])
+	model.fit(cqts, combinations, epochs=15, batch_size=12, shuffle=False,validation_split = 0.2, callbacks = callbacks)
 	#not that dat is already shuffled in the function processWav.
 	return model_name # model is saved with the ModelCheckpoint callback.
 
@@ -48,7 +50,7 @@ def cutWavByNotes(x, noteDurationInBeat, bpm, sampleRate): # x: wav data in nump
         numberOfNotes = int(numberOfNotes)
         noteDurationinSamples = int(noteDurationinSamples)
     else:
-        raise ValueError("In processWav function, the length of the data is ", len(x), " samples.",
+        raise ValueError("In cutWavByNotes function, the length of the data is ", len(x), " samples.",
                          "The length of a note is determined to be ", noteDurationinSamples, " samples",
                          "Which means that the total number of notes in the data is ", numberOfNotes,
                          "One of them is not an integer number. ")
@@ -79,11 +81,29 @@ def processWav(x,sampleRate, combMatrix = None):
 
 	samplesFromNote = int(np.floor(noteDurationinSamples / sampleLength)) # we are creating this many samples from one note.
 	# repeating notes in the comb matrix
-	combMatrixMaxs = np.max(combMatrix, 0)
-	combMatrix = combMatrix.astype(np.float) / combMatrixMaxs
 	combMatrix = np.tile(combMatrix,samplesFromNote).reshape(-1,combMatrix.shape[1]) # repeats each row as many times as many samples we create from a single note.
-	print("combMatrix is normed by the vector ", combMatrixMaxs)
 
+	#oneHot encodes combination matrix
+	print("OneHot encoding Combinations Matrix")
+	maxCombMatrix = np.max(combMatrix,0)
+	maxNotesTogether = maxCombMatrix[0] # first col is  the number of notes played together.
+	minCombMatrix = np.min(combMatrix,0)
+	minMidiNumber = np.min(minCombMatrix[1:])
+	maxMidiNumber = np.max(maxCombMatrix[1:])
+	# each row of the onehot encoded matrix will look like this:
+	# [----]  [-----------------------] First section represents the number of notes played together, going from 0 [1000] to maxNotesTogether. (e.g. in case of 4: 00001]
+	# second section is a range of midi Notes. Played midi Notes will have value 1.
+	midiRange = maxMidiNumber - minMidiNumber+1
+	noteNumberRange = maxNotesTogether +1
+	combOneHot = np.zeros((combMatrix.shape[0],noteNumberRange+midiRange))
+	for i in tqdm(range(combMatrix.shape[0])):
+		notes = combMatrix[i,0] # first col tells how many notes are played.
+		combOneHot[i,notes] = 1 # indicates how many notes are played
+		for j in range(notes):
+			note = combMatrix[i,j+1]
+			combOneHot[i,noteNumberRange + note - minMidiNumber] = 1 # indicates which note.
+  
+		
 	#preparing samples
 	samples = samples[:,:samplesFromNote*sampleLength] # cutting the end. (44100 is not a multiple of 512)
 
@@ -91,15 +111,14 @@ def processWav(x,sampleRate, combMatrix = None):
 	#Shuffle is applied before reshape(sampleLengthm-1), samples from the same notes are following each other, but
 	#note combinations are shuffled.
 	print("Calculating CQTs")
-	cqt = librosa.core.cqt(samples.astype(np.float),sampleRate,sampleLength)[:,:-1].transpose()
-	cqt = librosa.core.logamplitude(cqt)
+	cqt = librosa.core.cqt(samples.astype(np.float),sampleRate,sampleLength)[:,:-1]
+	cqt = librosa.core.logamplitude(cqt).transpose()
 	cqts = sklearn.preprocessing.normalize(cqt,axis=1)
 
-	if combMatrix.shape[0] != cqts.shape[0]:
-		raise ValueError("After processing the wav file in processWav, the generated samples",
-						 "and the generated combMatrix has different sizes. (First dimension should match.)\nShapes are: ",
-						 "combMatrix: " , combMatrix.shape, "\n cqts: " , cqts.shape)
-	return (cqts, combMatrix)
+	# Creating sequences.
+	cqts = cqts.reshape(-1,samplesFromNote * 3, cqts.shape[1]) # 4 note in a sequence
+	combOneHot = combOneHot.reshape(-1,samplesFromNote * 3, combOneHot.shape[1])
+	return (cqts, combOneHot)
 
 
 def get_data(fileName):
@@ -119,6 +138,9 @@ def get_data(fileName):
 			print('Processing new x data. List size is ' + str(len(note_sample_list)))
 			x =note_sample_list.pop()
 			(cqt_transform_this, combinations_this) = processWav(x, sample_rate)
+			if cqt_transform_this.shape[0] != combinations_this.shape[0]:
+				raise ValueError("processWav returned with two matrices with the difference sizes. cqt shape is " + str(cqt_transform_this.shape) +
+							", combinations shape: " + str(combinations_this.shape))
 			if cqt_transform is None:
 				cqt_transform = cqt_transform_this
 				combinations = combinations_this
@@ -133,7 +155,6 @@ def get_data(fileName):
 np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2' is 'Z')
 (cqt_transform, combinations) = get_data(wavFileName)
 
-cqt_transform = cqt_transform[:,np.newaxis,:]
 # Splitting the dataset to train (inc. validation) and test set.
 cqt_transform_train, cqt_transform_test, combinations_train, combinations_test = train_test_split(cqt_transform,combinations, test_size = 0.15, random_state = 13002  )
 
