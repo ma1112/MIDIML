@@ -1,14 +1,17 @@
 from scipy.io.wavfile import read as wavread
 import numpy as np
-from keras.models import Sequential
+from keras.models import Sequential, Model
 from keras.layers.convolutional import Conv1D
-from keras.layers.core import Dense
+from keras.layers.core import Dense, Reshape
+from keras.layers import Input
 from keras.layers.recurrent import LSTM
 from keras.optimizers import RMSprop, Adam # I do not know which to use
 from keras.layers.wrappers import TimeDistributed
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping # first saves the best model, second loggs the training, third stops the training of the result does not improve
 from keras.models import load_model # to load saved model.
 from generateWavs import getFilteredDataList
+from keras.layers.merge import Concatenate, Add
+from keras.layers import concatenate
 import os.path
 import librosa.core
 from sklearn.model_selection import train_test_split
@@ -17,7 +20,11 @@ import sklearn.preprocessing
 from tqdm import tqdm
 
 #parameters
-lr = 0.005 # learning rate
+#lr = 0.01 # learning rate -> valid acc 0.9881
+#lr = 0.0075 # -> valid acc 9860
+#separate network 98.32
+#merged network: 0.9961
+lr = 0.01
 wavFileName = "nylon_20.wav" # learn from this file
 
 
@@ -29,14 +36,30 @@ def train_model(cqts, combinations, lr):  # trains the model and returns the sav
 	callbacks.append(TensorBoard(log_dir=log_dir)) # logs into the TB_log directory
 	callbacks.append(ModelCheckpoint(filepath=model_name,   verbose=1, save_best_only=True, period=1)) # saves the model if the result is improved at the current epoch
 	callbacks.append(EarlyStopping(patience = 3,verbose = 1))
-	model = Sequential()
-	#model.add(Conv1D(2,10,input_shape=cqts.shape))
-	model.add(LSTM(combinations.shape[2],activation = "sigmoid", return_sequences = True,  input_shape = (cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
-	model.add(TimeDistributed(Dense(combinations.shape[2],activation="sigmoid")))
+#	model = Sequential()
+#	model.add(LSTM(combinations.shape[2],activation = "sigmoid", return_sequences = True,  input_shape = (cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
+#	model.add(LSTM(combinations.shape[2],activation = "sigmoid", return_sequences = True,  input_shape = (cqts.shape[1],cqts.shape[2]))) # sigmoid activation, since the output is scaled between 0 and 1.	
+#	model.add(TimeDistributed(Dense(combinations.shape[2],activation="sigmoid")))
+#	model.add(TimeDistributed(Dense(combinations.shape[2],activation="sigmoid")))
+
+	i = Input(shape = (cqts.shape[1],cqts.shape[2]))
+	left0  = TimeDistributed(Dense(cqts.shape[2], activation = "sigmoid" ))(i)
+	left1 = LSTM(10,activation="sigmoid",return_sequences = True)(left0)
+	left2 = TimeDistributed(Dense(4,activation="sigmoid"))(left1)
+	left3 = TimeDistributed(Dense(4,activation = "softmax"))(left2)
+
+	right0 = TimeDistributed(Dense(cqts.shape[2],activation="sigmoid"))(i)
+	right1 = LSTM(combinations.shape[2]-4,activation = "sigmoid", return_sequences = True)(right0)
+	right2 = TimeDistributed(Dense(combinations.shape[2]-4,activation = "sigmoid"))(right1)
+	right3 = TimeDistributed(Dense(combinations.shape[2]-4,activation = "sigmoid"))(right2)
+
+	o = concatenate([left3,right3])
+	model = Model(inputs= i, outputs = o)
 	print("Model Summary: \n" + str(model.summary()))
-	optimizer = RMSprop(lr = lr)
+	optimizer = RMSprop(lr=lr) #RMSprop(lr = lr)
 	model.compile(optimizer=optimizer, loss='binary_crossentropy',  metrics=['accuracy'])
-	model.fit(cqts, combinations, epochs=15, batch_size=12, shuffle=False,validation_split = 0.2, callbacks = callbacks)
+	model.fit(cqts, combinations, epochs=150, batch_size=120, shuffle=False,validation_split = 0.2, callbacks = callbacks)
+
 	#not that dat is already shuffled in the function processWav.
 	return model_name # model is saved with the ModelCheckpoint callback.
 
