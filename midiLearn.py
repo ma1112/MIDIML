@@ -25,7 +25,12 @@ from tqdm import tqdm
 #separate network 98.32
 #merged network: 0.9961
 lr = 0.01
-wavFileNames  = {"nylon_20.wav": "combinationMatrix.npy", } # wav filename - combMatrix (string, ndarray) pairs.
+emptyCombinations = np.zeros((1,77),dtype=np.int)
+wavFileNames  = {"nylon_20.wav": "combinationMatrix.npy",
+                  "160465__matucha__computer-noise-desktop-quadcore-2009.wav": emptyCombinations.copy(),
+                  "199896__qubodup__office-ambience.wav": emptyCombinations.copy(),
+                  "343755__brokenphono__scary-guitar.wav" : emptyCombinations.copy(),
+                  "43400__noisecollector__themostannoyingmeetingever.wav": emptyCombinations.copy() } # wav filename - combMatrix (string, ndarray) pairs.
 
 
 
@@ -69,16 +74,16 @@ def cutWavByNotes(x, noteDurationInBeat, bpm, sampleRate): # x: wav data in nump
 	noteDurationinSamples = (noteDurationInBeat * sampleRate) / bps  # note duration in samples
 	# Checking if wav format is okay.
 	numberOfNotes = (len(x)) / float(noteDurationinSamples)
-	numberOfNotes = int(np.floor(numberOfNotes))
-	noteDurationinSamples = int(noteDurationinSamples)
-	if not (np.round(numberOfNotes) == numberOfNotes and np.round(noteDurationinSamples) == noteDurationinSamples): # x array length is not a multiple of a note length
-		raise UserWarning("In cutWavByNotes function, the length of the data is ", len(x), " samples.",
+	numberOfNotesInt = int(np.floor(numberOfNotes))
+	noteDurationinSamplesInt = int(noteDurationinSamples)
+	if len(x) != numberOfNotesInt * noteDurationinSamplesInt: # x array length is not a multiple of a note length
+		print("In cutWavByNotes function, the length of the data is ", len(x), " samples.",
                          "The length of a note is determined to be ", noteDurationinSamples, " samples",
                          "Which means that the total number of notes in the data is ", numberOfNotes,
                          "One of them is not an integer number.\n Cutting wav data from length " , len(x) ,
-						  " to length " ,numberOfNotes*noteDurationinSamples )
-		x = x[:numberOfNotes*noteDurationinSamples]
-	x = x.reshape(numberOfNotes, noteDurationinSamples)  # reshapes: every row is a note
+						  " to length " ,numberOfNotesInt*noteDurationinSamplesInt )
+		x = x[:numberOfNotesInt*noteDurationinSamplesInt]
+	x = x.reshape(numberOfNotesInt, noteDurationinSamplesInt)  # reshapes: every row is a note
 	return x
 
 # Reads a (filtered) wav file, and returns training data (cqt transormed samples and output vectors)
@@ -109,7 +114,7 @@ def processWav(x,sampleRate, combMatrix = None):
 
 	xCut = cutWavByNotes(x,noteDurationInBeat,bpm,sampleRate)#each note in a row
 	if combMatrix.shape[0] ==1: # only one row is given:  apply this combination to all notes in the dataset.
-		combMatrix = np.tile(combMatrix,xCut.shape[0])
+		combMatrix = np.repeat(combMatrix,xCut.shape[0],axis=0)
 
 
 	samples, combMatrix = shuffle(xCut, combMatrix, random_state=13002)  # shuffles matricies.
@@ -121,16 +126,19 @@ def processWav(x,sampleRate, combMatrix = None):
 
 	#oneHot encodes combination matrix
 	print("OneHot encoding Combinations Matrix")
-	maxCombMatrix = np.max(combMatrix,0)
-	maxNotesTogether = maxCombMatrix[0] # first col is  the number of notes played together.
-	minCombMatrix = np.min(combMatrix,0)
-	minMidiNumber = np.min(minCombMatrix[1:])
-	maxMidiNumber = np.max(maxCombMatrix[1:])
+	#maxCombMatrix = np.max(combMatrix,0)
+	#maxNotesTogether = maxCombMatrix[0] # first col is  the number of notes played together.
+	#minCombMatrix = np.min(combMatrix,0)
+	#minMidiNumber = np.min(minCombMatrix[1:])
+	#maxMidiNumber = np.max(maxCombMatrix[1:])
+	#TODO: make dynamic but it should work with all zeros...
 	# each row of the onehot encoded matrix will look like this:
 	# [----]  [-----------------------] First section represents the number of notes played together, going from 0 [1000] to maxNotesTogether. (e.g. in case of 4: 00001]
 	# second section is a range of midi Notes. Played midi Notes will have value 1.
-	midiRange = maxMidiNumber - minMidiNumber+1
-	noteNumberRange = maxNotesTogether +1
+	midiRange = 77-4
+	noteNumberRange = 4
+	#DEBUG
+	print(combMatrix[0,:])
 	combOneHot = np.zeros((combMatrix.shape[0],noteNumberRange+midiRange))
 	for i in tqdm(range(combMatrix.shape[0])):
 		notes = combMatrix[i,0] # first col tells how many notes are played.
@@ -152,8 +160,13 @@ def processWav(x,sampleRate, combMatrix = None):
 	cqts = sklearn.preprocessing.normalize(cqt,axis=1)
 
 	# Creating sequences.
-	cqts = cqts.reshape(-1,samplesFromNote * 3, cqts.shape[1]) # 4 note in a sequence
-	combOneHot = combOneHot.reshape(-1,samplesFromNote * 3, combOneHot.shape[1])
+	sequenceLength = 3
+	cutFromEnd = cqts.shape[0] %  (samplesFromNote * sequenceLength)
+	if cutFromEnd>0:
+		cqts = cqts[:-cutFromEnd,:]
+		combOneHot = combOneHot[:-cutFromEnd,:]
+	cqts = cqts.reshape(-1,samplesFromNote * sequenceLength, cqts.shape[1]) # 3 note in a sequence
+	combOneHot = combOneHot.reshape(-1,samplesFromNote * sequenceLength, combOneHot.shape[1])
 	return (cqts, combOneHot)
 
 
@@ -192,13 +205,14 @@ np.random.seed(13002) # for reproductivity. (fyi: '13' is 'B', '0' is 'O' and '2
 cqt_transform = []
 combinations = []
 for file, combMatrix in wavFileNames.items():
+	print("processing file " , file)
 	(cqt_transform_this, combinations_this) = get_data(file, combMatrix)
 	if len(cqt_transform) ==0:
 		cqt_transform = cqt_transform_this
 		combinations = combinations_this
 	else:
-		cqt_transform = np.vstack(cqt_transform,cqt_transform_this)
-		combinations = np.vstack(combinations,combinations_this)
+		cqt_transform = np.vstack([cqt_transform,cqt_transform_this])
+		combinations = np.vstack([combinations,combinations_this])
 
 
 # Splitting the dataset to train (inc. validation) and test set.

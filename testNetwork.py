@@ -11,7 +11,7 @@ from midiutil import MIDIFile
 fileName = "bozzguitar1.wav"
 sampleLength = 512
 timeSteps = 516
-modelName = "model_merged_network_0625.hd5"
+modelName = "model_0702.hd5"
 
 # Cuts the Wav file so the network's predict function can be called on the output matrix.
 #fileName: wav file to read
@@ -29,6 +29,7 @@ def prepareSamplesFromWavFile(fileName, sampleLength, timeSteps):
 def predictNotes(cqts, modelName):
     print("Predicting notes")
     model = load_model(modelName)
+    print(model.summary())
     predictions = model.predict(cqts)
     predictions = predictions.reshape(predictions.shape[0]*predictions.shape[1],predictions.shape[2])
     return predictions
